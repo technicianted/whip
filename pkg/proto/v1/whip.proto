@@ -1,0 +1,105 @@
+// Copyright (c) technicianted. All rights reserved.
+// Licensed under the MIT License.
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+
+package v1;
+option go_package = ".;v1";
+
+// Register is a message sent from whip client to whip control service.
+// It must be the first message in the request.
+message Register {
+    // hostname is the client hostname for registration and does not
+    // need to match the actual hostname.
+    string hostname = 1;
+    // domain is the client domain to be used for registration and does
+    // not (and is not recommended) to match the actual domain name.
+    string domain = 2;
+    // ports is an array of published ports that the client will accept
+    // reverse tunnels to.
+    repeated uint32 ports = 3;
+}
+
+// ConnectFailed is a message sent from whip client to service indicating
+// that the connection requested has failed locally.
+message ConnectFailed {
+    // connection_iD is the unique connection request ID.
+    string connection_iD = 1;
+    // error_message is an aritrary human readable description of the error.
+    string error_message = 2;
+}
+
+// Pong is a response message sent by the client in response of a Ping
+// request.
+message Pong {
+    // sequence is the corresponding ping sequence number.
+    uint64 sequence = 1;
+    // ping_timestamp is the time the service sent out the ping.
+    google.protobuf.Timestamp ping_timestamp = 2;
+    // pong_timestamp is the time the client responded with pong.
+    google.protobuf.Timestamp pong_timestamp = 3;
+}
+
+// ConnectionPreamble is a message sent on the newly established tcp connection
+// from client to whip service. It tells the service which connection request
+// this tcp connection corresponds to.
+message ConnectionPreamble {
+    // connection_iD is the unique connection request.
+    string connection_iD = 1;
+}
+
+// RequestStream is the message set from client to service.
+message RequestStream {
+    oneof stream {
+        Register register = 1;
+        ConnectFailed connect_failed = 2;
+        Pong pong = 3;
+    }
+}
+
+// Connect is a control message sent from service to client to request the
+// establishment of a new reverse tcp connection.
+message Connect {
+    // connection_iD is a unique identifier of this connection request.
+    string connection_iD = 1;
+    // host is the remote host that the client should establish the tcp connection to.
+    string host = 2;
+    // port is the remote port number that the clinet should establish the tcp connection to.
+    uint32 port = 3;
+    // local_port is the requested local client port to proxy the tcp connection to.
+    uint32 local_port = 4;
+}
+
+// Ping is a request sent from service to client to measure RTT.
+message Ping {
+    // seuqence is the sequence number of this request.
+    uint64 sequence = 1;
+    // ping_timestamp is the time this request was sent.
+    google.protobuf.Timestamp ping_timestamp = 2;
+}
+
+// ResponseStream is the message set from service to client.
+message ResponseStream {
+    oneof stream {
+        Connect connect = 1;
+        Ping ping = 2;
+    }
+}
+
+// Whip is the control service used between clients and services to coordinate 
+// the establishment of reverse tcp connections.
+// Note that TLS support is not part of this proto specs.
+// Initial sequence goes as follows:
+// * Client makes Register call to service.
+// * Client sends Register message to service to identify itself with a hostname and a domain.
+// At this point the client is fully registered at the service. It is identified by hostname.domain.
+// When the service gets a new Dial request, the follow sequence is performed:
+// * Service sends a Connect message to client including remote tcp connection information and local port.
+// * Client receives the message and attempts to dial a new local tcp connection to the request local port.
+// * Client dials a new remote tcp connection based on the remote host and port provided in the Connect message.
+// * Client sends a ConnectionPreamble on the newly created tcp connection to the service to identify itself.
+// * Service returns the newly created conn.
+service Whip {
+    rpc Register(stream RequestStream) returns (stream ResponseStream);
+}
