@@ -5,13 +5,20 @@ Whip is a reverse tcp/mtls framework that can be used to establish client/server
 
 Whip fully supports mutual TLS authentication and verification for both control gRPC calls and reverse tcp.
 
-**NOTE: Be careful when using whip as it may bypass all network and software security measures you have you not configured and use correctly!**
+**NOTE: Be careful when using whip as it may bypass all network and software security measures when not configured and used correctly!**
 
 ### Background
 
 The primary use-case for whip is to enable direct reverse tcp connections that bypasses all the forward-path. In my case, we had a bunch of services that were running behind multiple proxy servers. We wanted a way to experiment reducing the number of proxies but it was impossible to do due to the complexity of network topology across the forward path.
 
-Whip was created to give us a way to have a direct connection from inside-out to our experimental components while maintaining direct addressability.
+Whip was created to give us a way to have a direct connection from inside-out to our experimental components while maintaining direct addressability to each individual instance.
+
+|Forward client/server (traditional)|Reverse tcp client/server (whip)|
+|-|-|
+|![forward](docs/images/instances-forward.svg)|![forward](docs/images/instances-reverse.svg)|
+
+### How it works
+Whip works be running a client with each service instance, typically as a side-car container. Whip client is configured with a virtual hostname and domain name such as `instance1.myservice`. Then the client establishes a gRCP control connection to Whip server and awaits connection initiation commands. Whenever a client wants to connect, Whip server will resolve the hostname and requests a reverse tcp connection from the corresponding whip client. Finally and end-to-end tcp stream is created.
 
 ![diagram](docs/images/whip.svg)
 
