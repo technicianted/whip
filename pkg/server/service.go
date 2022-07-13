@@ -283,7 +283,8 @@ func (s *Service) DialContext(ctx context.Context, network, address string, logg
 	return metrics.NewInstrumentedConn(
 			connEntry.conn,
 			connEntry.remoteHost.domain,
-			int(port)),
+			int(port),
+			logger),
 		nil
 }
 
@@ -499,7 +500,7 @@ func (s *Service) startTcpServer(logger logging.TraceLogger) error {
 func (s *Service) handleNewTCPConnection(conn net.Conn, logger logging.TraceLogger) {
 	logger = logging.NewTraceLogger("tcpconn")
 
-	logger.Infof("new connection from: %v", conn.RemoteAddr())
+	logger.Debugf("new connection from: %v", conn.RemoteAddr())
 
 	success := false
 	defer func() {
@@ -510,7 +511,7 @@ func (s *Service) handleNewTCPConnection(conn net.Conn, logger logging.TraceLogg
 
 	preamble := &protov1.ConnectionPreamble{}
 	if err := jsonpb.Unmarshal(conn, preamble); err != nil {
-		logger.Errorf("failed to get preamble: %v", err)
+		logger.Debugf("failed to get preamble: %v", err)
 		return
 	}
 
@@ -520,6 +521,7 @@ func (s *Service) handleNewTCPConnection(conn net.Conn, logger logging.TraceLogg
 	remote, ok := s.remoteHostsByPendingConnection[preamble.ConnectionID]
 	if !ok {
 		logger.Errorf("connection ID not found")
+		s.mutex.Unlock()
 		return
 	}
 	delete(s.remoteHostsByPendingConnection, preamble.ConnectionID)

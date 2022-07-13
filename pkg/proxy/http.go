@@ -5,11 +5,11 @@ package proxy
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/technicianted/whip/pkg/logging"
 	"github.com/technicianted/whip/pkg/proxy/metrics"
@@ -44,18 +44,23 @@ var _ http.Handler = &HTTP{}
 // proxied requests.
 type HTTP struct {
 	dialer                    types.Dialer
+	username                  string
+	password                  string
 	downstreamRequestIDheader string
 	httpClient                http.Client
 }
 
 // NewHTTP creates a new proxy with whip dialer. It tries to correlates downstream requests
 // using given downstreamRequestIDHeader.
-func NewHTTP(dialer types.Dialer, downstreamRequestIDheader string) *HTTP {
+func NewHTTP(dialer types.Dialer, downstreamRequestIDheader, username, password string) *HTTP {
 	return &HTTP{
 		dialer:                    dialer,
+		username:                  username,
+		password:                  password,
 		downstreamRequestIDheader: downstreamRequestIDheader,
 		httpClient: http.Client{
 			Transport: &http.Transport{
+				Proxy: http.ProxyFromEnvironment,
 				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 					var logger logging.TraceLogger
 					requestIDValue := ctx.Value(requestIDContextKey)
@@ -66,6 +71,11 @@ func NewHTTP(dialer types.Dialer, downstreamRequestIDheader string) *HTTP {
 					}
 					return dialer.DialContext(ctx, network, addr, logger)
 				},
+				ForceAttemptHTTP2:     true,
+				MaxIdleConns:          100,
+				IdleConnTimeout:       90 * time.Second,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
 			},
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
@@ -75,6 +85,8 @@ func NewHTTP(dialer types.Dialer, downstreamRequestIDheader string) *HTTP {
 }
 
 func (p *HTTP) ServeHTTP(wr http.ResponseWriter, req *http.Request) {
+	requestStartTime := time.Now()
+
 	var logger logging.TraceLogger
 	if requestID := req.Header.Get(p.downstreamRequestIDheader); p.downstreamRequestIDheader != "" && requestID != "" {
 		logger = logging.NewTraceLoggerWithRequestID("proxy", requestID)
@@ -87,6 +99,13 @@ func (p *HTTP) ServeHTTP(wr http.ResponseWriter, req *http.Request) {
 	if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
 		msg := fmt.Sprintf("unsupported protocol scheme: %v", req.URL.Scheme)
 		http.Error(wr, msg, http.StatusBadRequest)
+		logger.Errorf(msg)
+		return
+	}
+
+	if !checkAuth(req.Header["Proxy-Authorization"], p.username, p.password, logger) {
+		msg := "authentication failed"
+		http.Error(wr, msg, http.StatusUnauthorized)
 		logger.Errorf(msg)
 		return
 	}
@@ -106,12 +125,13 @@ func (p *HTTP) ServeHTTP(wr http.ResponseWriter, req *http.Request) {
 		msg := fmt.Sprintf("upstream error: %v", err)
 		http.Error(wr, msg, http.StatusBadGateway)
 		logger.Errorf(msg)
-		metrics.RequestsTotal.WithLabelValues("", "true").Inc()
+		metrics.RequestsTotal.WithLabelValues(req.Proto, "", "true").Inc()
 		return
 	}
+
 	defer resp.Body.Close()
 
-	metrics.RequestsTotal.WithLabelValues(strconv.Itoa(resp.StatusCode), "").Inc()
+	metrics.RequestsTotal.WithLabelValues(req.Proto, strconv.Itoa(resp.StatusCode), "").Inc()
 
 	logger.Tracef("response: %s", resp.Status)
 	// process headers
@@ -122,12 +142,38 @@ func (p *HTTP) ServeHTTP(wr http.ResponseWriter, req *http.Request) {
 		}
 	}
 
+	wr.Header()["whip_proxy_request_time"] = []string{fmt.Sprintf("%v", requestStartTime)}
+	wr.Header()["whip_proxy_response_time"] = []string{fmt.Sprintf("%v", time.Now())}
 	wr.WriteHeader(resp.StatusCode)
 	if f, ok := wr.(http.Flusher); ok {
 		f.Flush()
 	}
 
-	io.Copy(wr, resp.Body)
+	buffer := make([]byte, 32*1024)
+	for {
+		logger.Trace("reading from client")
+		n, err := resp.Body.Read(buffer)
+		if n > 0 {
+			logger.Tracef("read: %s", string(buffer[0:n]))
+			nw, err := wr.Write(buffer[0:n])
+			if nw != n {
+				logger.Warnf("short write: %d != %d", nw, n)
+				return
+			}
+			if err != nil {
+				logger.Warnf("failed to write to client: %v", err)
+				return
+			}
+			logger.Tracef("wrote: %d", nw)
+			if f, ok := wr.(http.Flusher); ok {
+				f.Flush()
+			}
+			logger.Tracef("flushed")
+		}
+		if err != nil {
+			break
+		}
+	}
 }
 
 func (p *HTTP) appendHostToXForwardHeader(header http.Header, host string) {

@@ -5,8 +5,10 @@ package client
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -36,6 +38,13 @@ var (
 	proxyListenPort           int
 	downstreamRequestIDheader string
 	fallbackProxy             bool
+	proxyTLS                  bool
+	proxyTLSKeyPath           string
+	proxyTLSCertPath          string
+	basicAuthUsername         string
+	basicAuthPasswordEnvName  string
+	basicAuthPasswordPath     string
+	target                    string
 )
 
 func init() {
@@ -48,7 +57,13 @@ func init() {
 	proxyCMD.Flags().IntVar(&proxyListenPort, "proxy-listen-port", 8008, "proxy listen port")
 	proxyCMD.Flags().StringVar(&downstreamRequestIDheader, "downstream-request-id-header", "", "header name that contains the request ID from downstream")
 	proxyCMD.Flags().BoolVar(&fallbackProxy, "fallback", false, "fallback to standard forwarding if upstream host is not whip")
-
+	proxyCMD.Flags().BoolVar(&proxyTLS, "proxy-tls", false, "enable tls for proxy listener")
+	proxyCMD.Flags().StringVar(&proxyTLSKeyPath, "proxy-tls-key-path", "", "path to tls private key in pem format for proxy tls")
+	proxyCMD.Flags().StringVar(&proxyTLSCertPath, "proxy-tls-cert-path", "", "path to tls certificate in pem format for proxy tls")
+	proxyCMD.Flags().StringVar(&basicAuthUsername, "proxy-auth-username", "whipproxy", "username to use for proxy basic auth")
+	proxyCMD.Flags().StringVar(&basicAuthPasswordEnvName, "proxy-auth-password-env", "WHIP_PROXY_PASSWORD", "environment variable with proxy basic auth password")
+	proxyCMD.Flags().StringVar(&basicAuthPasswordPath, "proxy-auth-password-path", "", "path to proxy requests auth key")
+	proxyCMD.Flags().StringVar(&target, "target", "", "specifies a single-host target for the proxy where all requests will go to target")
 	cmd.RootCMD.AddCommand(proxyCMD)
 }
 
@@ -60,6 +75,8 @@ func proxyFunc(command *cobra.Command, args []string) {
 
 	logger.Infof("whip version %v", version.Build)
 
+	singleHost := len(target) > 0
+
 	serverOptions := server.ServerOptions{
 		ExternalTCPHost: externalTCPHost,
 		ExternalTCPPort: externalTCPPort,
@@ -67,7 +84,7 @@ func proxyFunc(command *cobra.Command, args []string) {
 		GRPCListenPort:  grpcListenPort,
 		TLS:             cmd.TLS,
 		TLSKeyPath:      cmd.TLSKeyPath,
-		TLSCertPath:     cmd.TLSCACertPath,
+		TLSCertPath:     cmd.TLSCertPath,
 		TLSCACertPath:   cmd.TLSCACertPath,
 	}
 
@@ -84,14 +101,45 @@ func proxyFunc(command *cobra.Command, args []string) {
 		dialer = whipServer
 	}
 
-	proxyListenAddress := fmt.Sprintf("127.0.0.1:%d", proxyListenPort)
+	proxyListenAddress := ""
+	basicAuthPassword := ""
+	if envPassword, ok := os.LookupEnv(basicAuthPasswordEnvName); ok {
+		logger.Infof("using environemnt variable %s for basic auth password", basicAuthPasswordEnvName)
+		basicAuthPassword = envPassword
+	} else if basicAuthPasswordPath != "" {
+		if bytes, err := ioutil.ReadFile(basicAuthPasswordPath); err != nil {
+			logger.Fatalf("failed to read password from file %s: %v", basicAuthPasswordPath, err)
+		} else {
+			logger.Infof("using file %s for bsic auth password", basicAuthPasswordPath)
+			basicAuthPassword = string(bytes)
+		}
+	}
+	if basicAuthPassword == "" || basicAuthUsername == "" {
+		logger.Infof("proxy basic auth is disabled, using 127.0.0.1 as listen address")
+		basicAuthPassword = ""
+		basicAuthUsername = ""
+		proxyListenAddress = "127.0.0.1"
+	}
+
+	proxyListenAddress = fmt.Sprintf("%s:%d", proxyListenAddress, proxyListenPort)
 	logger.Infof("proxy listening on %s", proxyListenAddress)
 	httpLis, err := net.Listen("tcp", proxyListenAddress)
 	if err != nil {
 		logger.Fatalf("failed to listen: %v", err)
 	}
 
-	httpProxy := proxy.NewHTTP(dialer, downstreamRequestIDheader)
+	var httpProxy http.Handler
+	if singleHost {
+		targetURL, err := url.Parse(target)
+		if err != nil {
+			logger.Fatalf("failed to parse target %s: %v", target, err)
+		}
+		logger.Infof("using single host proxy to: %s", target)
+		httpProxy = proxy.NewSingleHost(dialer, downstreamRequestIDheader, basicAuthUsername, basicAuthPassword, targetURL)
+	} else {
+		httpProxy = proxy.NewHTTP(dialer, downstreamRequestIDheader, basicAuthUsername, basicAuthPassword)
+	}
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
@@ -99,8 +147,16 @@ func proxyFunc(command *cobra.Command, args []string) {
 		Handler: httpProxy,
 	}
 	go func() {
-		if err := httpServer.Serve(httpLis); err != http.ErrServerClosed {
-			logger.Errorf("failed to serve http: %v", err)
+		if proxyTLS {
+			logger.Infof("running https proxy")
+			if err := httpServer.ServeTLS(httpLis, proxyTLSCertPath, proxyTLSKeyPath); err != http.ErrServerClosed {
+				logger.Fatalf("failed to serve https: %v", err)
+			}
+		} else {
+			logger.Infof("running http proxy")
+			if err := httpServer.Serve(httpLis); err != http.ErrServerClosed {
+				logger.Fatalf("failed to serve http: %v", err)
+			}
 		}
 	}()
 

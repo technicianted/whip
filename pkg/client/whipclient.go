@@ -133,7 +133,6 @@ func (c *WhipClient) whipServiceLoop(ctx context.Context, logger logging.TraceLo
 
 func (c *WhipClient) handleConnect(ctx context.Context, msg *protov1.Connect, stream protov1.Whip_RegisterClient, logger logging.TraceLogger) {
 	logger.Infof("received connect request: %v", msg)
-	logger = logging.NewTraceLoggerWithRequestID("tcp", msg.ConnectionID)
 
 	metrics.ActiveConnections.WithLabelValues(c.domain, fmt.Sprintf("%d", msg.Port)).Inc()
 	defer metrics.ActiveConnections.WithLabelValues(c.domain, fmt.Sprintf("%d", msg.Port)).Dec()
@@ -200,7 +199,7 @@ func (c *WhipClient) handleConnect(ctx context.Context, msg *protov1.Connect, st
 	localReaderDoneChan := make(chan interface{})
 	remoteReaderDoneChan := make(chan interface{})
 	go func() {
-		buffer := make([]byte, 32*1024*1024)
+		buffer := make([]byte, 32*1024)
 		for {
 			n, err := localConn.Read(buffer)
 			if err != nil {
@@ -220,7 +219,7 @@ func (c *WhipClient) handleConnect(ctx context.Context, msg *protov1.Connect, st
 		close(localReaderDoneChan)
 	}()
 	go func() {
-		buffer := make([]byte, 32*1024*1024)
+		buffer := make([]byte, 32*1024)
 		for {
 			n, err := conn.Read(buffer)
 			if err != nil {

@@ -66,7 +66,7 @@ func (r *reconciler) Reconcile(ctx context.Context, endpoints []string, currentC
 }
 
 func (r *reconciler) reconcileEndpoint(ctx context.Context, endpoint string, currentClientKeys []string, logger logging.TraceLogger) (existingClients []string, removedClients []string, addedClients []types.ReconcilerClientInfo, err error) {
-	u, err := r.parseEndpoint(endpoint)
+	u, err := parseEndpoint(endpoint)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to parse endpoint %s: %v", endpoint, err)
 	}
@@ -134,15 +134,13 @@ func (r *reconciler) keyEndpointMatch(key, endpoint string) bool {
 	return parts[0] == endpoint
 }
 
-func (r *reconciler) parseEndpoint(endpoint string) (*url.URL, error) {
+func parseEndpoint(endpoint string) (*url.URL, error) {
 	// for traditional grpc endpoints like localhost:8080, url.Parse
 	// is not going to work as expected so we need to prepend a dummy
 	// https:// prefix to force it to parse it as a host.
-	u, err := url.Parse(endpoint)
-	if err == nil && u.Scheme != "" {
-		return u, nil
+	if !strings.Contains(endpoint, "://") {
+		endpoint = "https://" + endpoint
 	}
 
-	endpoint = "https://" + endpoint
 	return url.Parse(endpoint)
 }

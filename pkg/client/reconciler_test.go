@@ -168,3 +168,14 @@ func TestClientReconcilerHostTemporaryFailure(t *testing.T) {
 	require.Len(t, added, 0)
 	require.Len(t, removed, 0)
 }
+
+func TestURLParser(t *testing.T) {
+	u, err := parseEndpoint("test1.endpoint.com")
+	require.NoError(t, err)
+	require.Equal(t, "test1.endpoint.com", u.Hostname())
+
+	u, err = parseEndpoint("test1.endpoint.com:1234")
+	require.NoError(t, err)
+	require.Equal(t, "test1.endpoint.com:1234", u.Host)
+	require.Equal(t, "test1.endpoint.com", u.Hostname())
+}

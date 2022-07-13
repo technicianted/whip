@@ -3,9 +3,9 @@
 ##################################################
 
 VERSION		   ?= latest
-IMAGE_REGISTRY ?= skyman.azurecr.io
-IMAGE_REPO     ?= scratch
-IMAGE_FULL = $(IMAGE_REGISTRY)/$(IMAGE_REPO)/southspot:$(VERSION)
+IMAGE_REGISTRY ?= technicianted
+IMAGE_REPO     ?= whip
+IMAGE_FULL = $(IMAGE_REGISTRY)/$(IMAGE_REPO):$(VERSION)
 
 ARCH       ?=amd64
 CGO        ?=0
@@ -54,4 +54,7 @@ binaries: protos
 	$(GO_BUILD_VARS) go build -ldflags "-X github.com/technicianted/whip/version.Build=$(BUILD_VERSION)" -o bin/whiphack ./cmd/whiphack/
 
 dockerbuild: binaries
-	docker build -t whip .
+	docker build -t $(IMAGE_FULL) .
+
+dockerpush: dockerbuild
+	docker push $(IMAGE_FULL)

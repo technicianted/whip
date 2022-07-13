@@ -4,6 +4,8 @@ import (
 	"net"
 	"strconv"
 	"time"
+
+	"github.com/technicianted/whip/pkg/logging"
 )
 
 var _ net.Conn = &InstrumentedConn{}
@@ -13,16 +15,19 @@ type InstrumentedConn struct {
 	net.Conn
 	domain string
 	port   string
+	logger logging.TraceLogger
 }
 
-func NewInstrumentedConn(conn net.Conn, domain string, port int) *InstrumentedConn {
+func NewInstrumentedConn(conn net.Conn, domain string, port int, logger logging.TraceLogger) *InstrumentedConn {
 	strPort := strconv.Itoa(port)
 	ActiveConnections.WithLabelValues(domain, strPort).Inc()
 
+	logger.Tracef("instrumented connection created")
 	return &InstrumentedConn{
 		Conn:   conn,
 		domain: domain,
 		port:   strPort,
+		logger: logging.NewTraceLoggerFromLogger("tcpconn", logger),
 	}
 }
 
@@ -35,7 +40,8 @@ func (c *InstrumentedConn) Write(b []byte) (n int, err error) {
 }
 
 func (c *InstrumentedConn) Close() error {
-	ActiveConnections.WithLabelValues(c.domain, c.port).Inc()
+	ActiveConnections.WithLabelValues(c.domain, c.port).Dec()
+	c.logger.Tracef("connection closed")
 	return c.Conn.Close()
 }
 

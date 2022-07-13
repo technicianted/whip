@@ -80,7 +80,7 @@ $ bin/whiphack pki createandsign client --hostname=* --domain=testdom
 
 #### `whip proxy`
 
-For experimentation and testing, you can use the bundled `whip proxy` as an http proxy. While it is a fully functionality http proxy, it is not recommended for production use.
+For experimentation and testing, you can use the bundled `whip proxy` as an http proxy. While it is a fully functional http proxy, it is not recommended for production use.
 
 * Start client on remote node (your server side), or a side-car container
 ```bash

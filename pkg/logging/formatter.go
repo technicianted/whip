@@ -31,7 +31,7 @@ func (formatter *LogFormatter) Register() {
 // Format perform custom logger formatting.
 func (formatter *LogFormatter) Format(entry *log.Entry) ([]byte, error) {
 	b := &bytes.Buffer{}
-	b.WriteString(fmt.Sprintf("%-29s", entry.Time.Format("2006-01-02T15:04:05.999-07:00")))
+	b.WriteString(fmt.Sprintf("%-29s", entry.Time.Format("2006-01-02T15:04:05.999999-07:00")))
 	b.WriteString(" ")
 	requestID, ok := entry.Data["requestID"].(string)
 	if !ok || requestID == "" {

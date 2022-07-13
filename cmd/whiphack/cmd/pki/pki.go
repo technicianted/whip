@@ -30,7 +30,7 @@ var (
 func init() {
 	PKICMD.PersistentFlags().StringVar(&CACertPath, "ca-cert-path", "ca-cert.pem", "path to ca certificate pem file")
 	PKICMD.PersistentFlags().StringVar(&CAKeyPath, "ca-key-path", "ca-key.pem", "path to ca key pem file")
-	PKICMD.Flags().DurationVar(&ValidityDuration, "ca-validity-duration", 30*24*time.Hour, "validity duration of the ca")
+	PKICMD.PersistentFlags().DurationVar(&ValidityDuration, "validity-duration", 30*24*time.Hour, "validity duration of the certificate")
 	PKICMD.PersistentFlags().StringSliceVar(&Subject.Country, "country", Subject.Country, "certificate subject country")
 	PKICMD.PersistentFlags().StringSliceVar(&Subject.Organization, "organization", Subject.Organization, "certificate subject organization")
 	PKICMD.PersistentFlags().StringSliceVar(&Subject.OrganizationalUnit, "organization-unit", Subject.OrganizationalUnit, "certificate subject organization unit")

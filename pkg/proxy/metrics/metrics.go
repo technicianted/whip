@@ -12,8 +12,9 @@ import (
 const (
 	Subsystem = "http_proxy"
 
-	HTTPStatusLabel = "status"
-	ErrorLabel      = "error"
+	UpstreamHTTPProtoLabel = "upstream_http"
+	HTTPStatusLabel        = "status"
+	ErrorLabel             = "error"
 )
 
 var (
@@ -24,6 +25,6 @@ var (
 			Name:      "requests_total",
 			Help:      "Total requests proxied http requests",
 		},
-		[]string{HTTPStatusLabel, ErrorLabel},
+		[]string{UpstreamHTTPProtoLabel, HTTPStatusLabel, ErrorLabel},
 	)
 )

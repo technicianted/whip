@@ -63,7 +63,7 @@ func clientFunc(command *cobra.Command, args []string) {
 		Ports:                ports,
 		TLS:                  cmd.TLS,
 		TLSKeyPath:           cmd.TLSKeyPath,
-		TLSCertPath:          cmd.TLSCACertPath,
+		TLSCertPath:          cmd.TLSCertPath,
 		TLSCACertPath:        cmd.TLSCACertPath,
 	}
 
